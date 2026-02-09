@@ -1,31 +1,50 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Sparkles, Upload, Mic as MicIcon, MicOff, Camera } from "lucide-react";
+import { Sparkles, Upload, Mic as MicIcon, MicOff, Camera, Loader2 } from "lucide-react";
+import { useMusesAnalysis } from "@/hooks/useMusesAnalysis";
 
 const InventorMode = () => {
   const [fridgeImage, setFridgeImage] = useState<string | null>(null);
+  const [fridgeFile, setFridgeFile] = useState<File | null>(null);
   const [preference, setPreference] = useState("");
-  const [recipe, setRecipe] = useState<null | { name: string; steps: string[]; currentStep: number }>(null);
+  const [recipe, setRecipe] = useState<null | {
+    name: string;
+    cuisine_style?: string;
+    prep_time?: string;
+    cook_time?: string;
+    steps: Array<{ step: number; instruction: string; highlight?: string }>;
+    currentStep: number;
+    identified_ingredients?: string[];
+    nutrition_notes?: string;
+  }>(null);
   const [voiceEnabled, setVoiceEnabled] = useState(false);
+
+  const { analyzing, analyze, imageToBase64 } = useMusesAnalysis("inventor");
 
   const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) setFridgeImage(URL.createObjectURL(file));
+    if (file) {
+      setFridgeFile(file);
+      setFridgeImage(URL.createObjectURL(file));
+    }
   };
 
-  const generateRecipe = () => {
-    setRecipe({
-      name: "Karnataka-Style Low-Carb Veggie Bowl",
-      steps: [
-        "Dice the available vegetables into bite-sized pieces",
-        "Heat coconut oil in a pan, add mustard seeds",
-        "Add curry leaves, green chillies, and diced onions",
-        "Add vegetables and sauté for 5 minutes",
-        "Season with turmeric, coriander, and a pinch of jaggery",
-        "Serve hot with a side of coconut chutney",
-      ],
-      currentStep: 0,
-    });
+  const generateRecipe = async () => {
+    if (!fridgeFile) return;
+    const base64 = await imageToBase64(fridgeFile);
+    const result = await analyze(base64, preference || "Any cuisine, healthy options preferred");
+    if (result && !result.error) {
+      setRecipe({
+        name: result.recipe_name || "AI Generated Recipe",
+        cuisine_style: result.cuisine_style,
+        prep_time: result.prep_time,
+        cook_time: result.cook_time,
+        steps: result.steps || [],
+        currentStep: 0,
+        identified_ingredients: result.identified_ingredients,
+        nutrition_notes: result.nutrition_notes,
+      });
+    }
   };
 
   const nextStep = () => {
@@ -44,8 +63,7 @@ const InventorMode = () => {
     if (!voiceEnabled) return;
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SR) return;
-    const r = new SR();
-    r.continuous = true;
+    const r = new SR(); r.continuous = true;
     r.onresult = (e: any) => {
       const t = e.results[e.results.length - 1][0].transcript.toLowerCase();
       if (t.includes("next")) nextStep();
@@ -62,8 +80,9 @@ const InventorMode = () => {
         <div>
           <h1 className="text-3xl font-heading font-bold flex items-center gap-3">
             <Sparkles className="w-8 h-8 text-neon-lime" /> Inventor Mode
+            {analyzing && <Loader2 className="w-5 h-5 animate-spin text-neon-lime" />}
           </h1>
-          <p className="text-muted-foreground mt-1">Multimodal Recipe & AR Creator</p>
+          <p className="text-muted-foreground mt-1">Multimodal Recipe & AR Creator — AI generates recipes from your ingredients</p>
         </div>
         <button onClick={() => setVoiceEnabled(!voiceEnabled)} className={`p-2 rounded-lg glass-panel ${voiceEnabled ? "border-neon-lime/50" : ""}`}>
           {voiceEnabled ? <MicIcon className="w-5 h-5 text-neon-lime" /> : <MicOff className="w-5 h-5 text-muted-foreground" />}
@@ -71,7 +90,6 @@ const InventorMode = () => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Input area */}
         <div className="space-y-4">
           <div className="glass-panel rounded-xl overflow-hidden aspect-video flex items-center justify-center relative">
             {fridgeImage ? (
@@ -101,20 +119,37 @@ const InventorMode = () => {
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
               onClick={generateRecipe}
-              disabled={!fridgeImage}
-              className="w-full mt-4 px-4 py-3 rounded-lg bg-primary text-primary-foreground font-heading font-bold disabled:opacity-50 disabled:cursor-not-allowed neon-glow-lime"
+              disabled={!fridgeFile || analyzing}
+              className="w-full mt-4 px-4 py-3 rounded-lg bg-primary text-primary-foreground font-heading font-bold disabled:opacity-50 disabled:cursor-not-allowed neon-glow-lime flex items-center justify-center gap-2"
             >
-              Generate Recipe
+              {analyzing ? <><Loader2 className="w-4 h-4 animate-spin" /> Generating...</> : "Generate Recipe"}
             </motion.button>
           </div>
+
+          {/* Identified ingredients */}
+          {recipe?.identified_ingredients && recipe.identified_ingredients.length > 0 && (
+            <div className="glass-panel p-5 rounded-xl">
+              <h3 className="font-heading font-semibold mb-3 text-neon-cyan">Identified Ingredients</h3>
+              <div className="flex flex-wrap gap-2">
+                {recipe.identified_ingredients.map((ing, i) => (
+                  <span key={i} className="px-3 py-1 rounded-full bg-neon-cyan/10 border border-neon-cyan/30 text-xs text-neon-cyan">{ing}</span>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* Recipe output with AR-style steps */}
+        {/* Recipe output */}
         <div className="glass-panel p-6 rounded-xl">
           {recipe ? (
             <div>
               <h3 className="font-heading font-bold text-xl mb-1">{recipe.name}</h3>
-              <p className="text-sm text-muted-foreground mb-6">{recipe.steps.length} steps</p>
+              {recipe.cuisine_style && <p className="text-sm text-neon-lime mb-1">{recipe.cuisine_style}</p>}
+              <div className="flex gap-4 text-xs text-muted-foreground mb-6">
+                {recipe.prep_time && <span>Prep: {recipe.prep_time}</span>}
+                {recipe.cook_time && <span>Cook: {recipe.cook_time}</span>}
+                <span>{recipe.steps.length} steps</span>
+              </div>
 
               <div className="space-y-3">
                 {recipe.steps.map((step, i) => (
@@ -136,7 +171,18 @@ const InventorMode = () => {
                       }`}>
                         {i + 1}
                       </span>
-                      <p className="text-sm">{step}</p>
+                      <div>
+                        <p className="text-sm">{step.instruction}</p>
+                        {step.highlight && i === recipe.currentStep && (
+                          <motion.span
+                            className="inline-block mt-1 px-2 py-0.5 rounded bg-neon-lime/20 text-neon-lime text-xs font-medium"
+                            animate={{ opacity: [0.6, 1, 0.6] }}
+                            transition={{ duration: 1.5, repeat: Infinity }}
+                          >
+                            👉 {step.highlight}
+                          </motion.span>
+                        )}
+                      </div>
                     </div>
                     {i === recipe.currentStep && (
                       <motion.div
@@ -150,13 +196,15 @@ const InventorMode = () => {
               </div>
 
               <div className="flex gap-3 mt-6">
-                <button onClick={prevStep} disabled={recipe.currentStep === 0} className="flex-1 px-4 py-2 rounded-lg glass-panel text-sm font-medium disabled:opacity-30 hover:bg-secondary/50 transition-colors">
-                  Previous
-                </button>
-                <button onClick={nextStep} disabled={recipe.currentStep === recipe.steps.length - 1} className="flex-1 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium disabled:opacity-30">
-                  Next Step
-                </button>
+                <button onClick={prevStep} disabled={recipe.currentStep === 0} className="flex-1 px-4 py-2 rounded-lg glass-panel text-sm font-medium disabled:opacity-30 hover:bg-secondary/50 transition-colors">Previous</button>
+                <button onClick={nextStep} disabled={recipe.currentStep === recipe.steps.length - 1} className="flex-1 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium disabled:opacity-30">Next Step</button>
               </div>
+
+              {recipe.nutrition_notes && (
+                <div className="mt-4 p-3 rounded-lg bg-secondary/20 text-xs text-muted-foreground">
+                  🥗 {recipe.nutrition_notes}
+                </div>
+              )}
             </div>
           ) : (
             <div className="h-full flex items-center justify-center text-center p-8">

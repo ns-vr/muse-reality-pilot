@@ -1,0 +1,4 @@
+project_id = "tawpukdotxajwufeomxd"
+
+[functions.muses-analyze]
+verify_jwt = false
